@@ -50,6 +50,7 @@
 
     toggle.setAttribute('aria-expanded', 'false');
     container.setAttribute('aria-hidden', 'true');
+    container.hidden = true;
 
     toggle.addEventListener('click', function () {
       container.classList.toggle('is-visible');
@@ -57,6 +58,7 @@
       var isVisible = container.classList.contains('is-visible');
       toggle.setAttribute('aria-expanded', isVisible ? 'true' : 'false');
       container.setAttribute('aria-hidden', isVisible ? 'false' : 'true');
+      container.hidden = !isVisible;
     });
   }
 
@@ -114,12 +116,12 @@
       return;
     }
 
-    if (active) {
-      config.group.classList.add('is-visible');
-      config.group.setAttribute('aria-hidden', 'false');
-    } else {
-      config.group.classList.remove('is-visible');
-      config.group.setAttribute('aria-hidden', 'true');
+    config.group.classList.toggle('is-visible', !!active);
+    config.group.hidden = !active;
+    config.group.setAttribute('aria-hidden', active ? 'false' : 'true');
+
+    if (config.label) {
+      config.label.classList.toggle('is-active', !!active);
     }
   }
 
@@ -387,6 +389,10 @@
         return;
       }
 
+      var homeCheckbox = form.querySelector('[data-mbapro-ev-advanced-select="home"]');
+      var publicCheckbox = form.querySelector('[data-mbapro-ev-advanced-select="public"]');
+      var workCheckbox = form.querySelector('[data-mbapro-ev-advanced-select="work"]');
+
       var inputs = {
         fields: {
           daily_km: {
@@ -404,7 +410,8 @@
         },
         advanced: {
           home: {
-            checkbox: form.querySelector('[data-mbapro-ev-advanced-select="home"]'),
+            checkbox: homeCheckbox,
+            label: homeCheckbox ? homeCheckbox.closest('.mbapro-ev-calculator__advanced-selector') : null,
             group: form.querySelector('[data-mbapro-ev-advanced-group="home"]'),
             percentage: {
               input: form.querySelector('[data-mbapro-ev-input="home_percentage"]'),
@@ -416,7 +423,8 @@
             }
           },
           public: {
-            checkbox: form.querySelector('[data-mbapro-ev-advanced-select="public"]'),
+            checkbox: publicCheckbox,
+            label: publicCheckbox ? publicCheckbox.closest('.mbapro-ev-calculator__advanced-selector') : null,
             group: form.querySelector('[data-mbapro-ev-advanced-group="public"]'),
             percentage: {
               input: form.querySelector('[data-mbapro-ev-input="public_percentage"]'),
@@ -428,7 +436,8 @@
             }
           },
           work: {
-            checkbox: form.querySelector('[data-mbapro-ev-advanced-select="work"]'),
+            checkbox: workCheckbox,
+            label: workCheckbox ? workCheckbox.closest('.mbapro-ev-calculator__advanced-selector') : null,
             group: form.querySelector('[data-mbapro-ev-advanced-group="work"]'),
             percentage: {
               input: form.querySelector('[data-mbapro-ev-input="work_percentage"]'),
