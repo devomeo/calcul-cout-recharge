@@ -38,7 +38,7 @@
   }
 
   /**
-   * Toggle helper for advanced fields.
+   * Toggle helper for advanced fields container.
    *
    * @param {HTMLElement} toggle
    * @param {HTMLElement} container
@@ -61,6 +61,69 @@
   }
 
   /**
+   * Bind interactions for individual advanced groups toggled by checkboxes.
+   *
+   * @param {Object} advancedGroups Map of advanced groups.
+   * @param {HTMLElement|null} tipElement Element that displays repartition tips.
+   */
+  function bindAdvancedGroups(advancedGroups, tipElement) {
+    if (!advancedGroups) {
+      return;
+    }
+
+    Object.keys(advancedGroups).forEach(function (key) {
+      var config = advancedGroups[key];
+
+      if (!config || !config.checkbox || !config.group) {
+        return;
+      }
+
+      toggleAdvancedGroup(config, config.checkbox.checked);
+
+      config.checkbox.addEventListener('change', function () {
+        toggleAdvancedGroup(config, config.checkbox.checked);
+
+        if (!config.checkbox.checked) {
+          if (config.percentage) {
+            clearError(config.percentage);
+            if (config.percentage.input) {
+              config.percentage.input.value = '';
+            }
+          }
+          if (config.price) {
+            clearError(config.price);
+            if (config.price.input) {
+              config.price.input.value = '';
+            }
+          }
+        }
+
+        updateAdvancedTip(tipElement, '');
+      });
+    });
+  }
+
+  /**
+   * Toggle visibility of a single advanced group block.
+   *
+   * @param {Object} config Group configuration.
+   * @param {boolean} active Whether group should be visible.
+   */
+  function toggleAdvancedGroup(config, active) {
+    if (!config || !config.group) {
+      return;
+    }
+
+    if (active) {
+      config.group.classList.add('is-visible');
+      config.group.setAttribute('aria-hidden', 'false');
+    } else {
+      config.group.classList.remove('is-visible');
+      config.group.setAttribute('aria-hidden', 'true');
+    }
+  }
+
+  /**
    * Perform the EV cost calculation.
    *
    * @param {Object} inputs Input nodes keyed by identifier.
@@ -75,7 +138,7 @@
     }
 
     calculateButton.addEventListener('click', function () {
-      var values = getInputValues(inputs.fields);
+      var values = getInputValues(inputs);
 
       if (!values.isValid) {
         return;
@@ -83,12 +146,6 @@
 
       var kWhPerDay = (values.dailyKm * values.consumption) / 100;
       var pricePerKWh = values.price;
-
-      if (values.useAdvanced) {
-        var homeRatio = values.homePercentage / 100;
-        var publicRatio = 1 - homeRatio;
-        pricePerKWh = (values.homePrice * homeRatio) + (values.publicPrice * publicRatio);
-      }
 
       var costPerDay = kWhPerDay * pricePerKWh;
       var costPerWeek = costPerDay * 7;
@@ -119,7 +176,10 @@
    * @param {Object} fields Input and error nodes.
    * @returns {Object}
    */
-  function getInputValues(fields) {
+  function getInputValues(inputs) {
+    var fields = inputs.fields;
+    var advanced = inputs.advanced || {};
+    var tipElement = inputs.advancedTip || null;
     var hasError = false;
     var dailyKm = parseInputValue(fields.daily_km.input);
     var consumption = parseInputValue(fields.consumption.input);
@@ -139,29 +199,88 @@
       clearError(fields.consumption);
     }
 
-    if (!isValidPositiveNumber(price)) {
+    var priceValid = isValidPositiveNumber(price);
+
+    var advancedUsed = false;
+    var advancedValid = true;
+    var weightedSum = 0;
+    var totalRatio = 0;
+    var totalPercentage = 0;
+
+    Object.keys(advanced).forEach(function (key) {
+      var config = advanced[key];
+
+      if (!config || !config.checkbox || !config.checkbox.checked) {
+        if (config && config.percentage) {
+          clearError(config.percentage);
+        }
+        if (config && config.price) {
+          clearError(config.price);
+        }
+        return;
+      }
+
+      advancedUsed = true;
+
+      var percentage = parseInputValue(config.percentage ? config.percentage.input : null);
+      var priceValue = parseInputValue(config.price ? config.price.input : null);
+
+      if (!isValidPercentage(percentage)) {
+        hasError = true;
+        advancedValid = false;
+        showError(config.percentage, 'Pourcentage entre 0 et 100 requis.');
+      } else {
+        clearError(config.percentage);
+      }
+
+      if (!isValidPositiveNumber(priceValue)) {
+        hasError = true;
+        advancedValid = false;
+        showError(config.price, 'Indiquez un prix supérieur à 0.');
+      } else {
+        clearError(config.price);
+      }
+
+      if (isValidPercentage(percentage) && isValidPositiveNumber(priceValue)) {
+        var ratio = percentage / 100;
+        weightedSum += priceValue * ratio;
+        totalRatio += ratio;
+        totalPercentage += percentage;
+      }
+    });
+
+    if (advancedUsed) {
+      if (totalPercentage <= 0) {
+        hasError = true;
+        advancedValid = false;
+        updateAdvancedTip(tipElement, 'Renseignez des pourcentages supérieurs à 0 pour utiliser ces options.');
+      } else if (Math.abs(totalPercentage - 100) > 0.5) {
+        updateAdvancedTip(tipElement, 'Astuce : pour un résultat plus précis, faites en sorte que le total fasse 100 %. Total actuel : ' + totalPercentage.toFixed(0) + ' %.');
+      } else {
+        updateAdvancedTip(tipElement, 'Répartition totale : ' + totalPercentage.toFixed(0) + ' %.');
+      }
+    } else {
+      updateAdvancedTip(tipElement, '');
+    }
+
+    var useAdvanced = advancedUsed && advancedValid && totalRatio > 0;
+    var effectivePrice = price;
+
+    if (useAdvanced) {
+      effectivePrice = totalRatio > 0 ? (weightedSum / totalRatio) : price;
+      clearError(fields.price);
+    } else if (!priceValid) {
       hasError = true;
       showError(fields.price, 'Veuillez saisir une valeur supérieure à 0.');
     } else {
       clearError(fields.price);
     }
 
-    var homePercentage = parseInputValue(fields.home_percentage.input);
-    var homePrice = parseInputValue(fields.home_price.input);
-    var publicPrice = parseInputValue(fields.public_price.input);
-
-    var useAdvanced = !isNaN(homePercentage) && homePercentage >= 0 && homePercentage <= 100 &&
-      isValidPositiveNumber(homePrice) &&
-      isValidPositiveNumber(publicPrice);
-
     return {
       isValid: !hasError,
       dailyKm: hasError ? 0 : dailyKm,
       consumption: hasError ? 0 : consumption,
-      price: hasError ? 0 : price,
-      homePercentage: useAdvanced ? homePercentage : 0,
-      homePrice: useAdvanced ? homePrice : 0,
-      publicPrice: useAdvanced ? publicPrice : 0,
+      price: hasError ? 0 : effectivePrice,
       useAdvanced: useAdvanced
     };
   }
@@ -174,6 +293,30 @@
    */
   function isValidPositiveNumber(value) {
     return typeof value === 'number' && !isNaN(value) && value > 0;
+  }
+
+  /**
+   * Determine if a value is a valid percentage between 0 and 100.
+   *
+   * @param {number} value Value to check.
+   * @returns {boolean}
+   */
+  function isValidPercentage(value) {
+    return typeof value === 'number' && !isNaN(value) && value >= 0 && value <= 100;
+  }
+
+  /**
+   * Update advanced repartition tip helper.
+   *
+   * @param {HTMLElement|null} tipElement
+   * @param {string} message
+   */
+  function updateAdvancedTip(tipElement, message) {
+    if (!tipElement) {
+      return;
+    }
+
+    tipElement.textContent = message;
   }
 
   /**
@@ -257,20 +400,47 @@
           price: {
             input: form.querySelector('[data-mbapro-ev-input="price"]'),
             error: form.querySelector('[data-mbapro-ev-error="price"]')
-          },
-          home_percentage: {
-            input: form.querySelector('[data-mbapro-ev-input="home_percentage"]'),
-            error: null
-          },
-          home_price: {
-            input: form.querySelector('[data-mbapro-ev-input="home_price"]'),
-            error: null
-          },
-          public_price: {
-            input: form.querySelector('[data-mbapro-ev-input="public_price"]'),
-            error: null
           }
         },
+        advanced: {
+          home: {
+            checkbox: form.querySelector('[data-mbapro-ev-advanced-select="home"]'),
+            group: form.querySelector('[data-mbapro-ev-advanced-group="home"]'),
+            percentage: {
+              input: form.querySelector('[data-mbapro-ev-input="home_percentage"]'),
+              error: form.querySelector('[data-mbapro-ev-error="home_percentage"]')
+            },
+            price: {
+              input: form.querySelector('[data-mbapro-ev-input="home_price"]'),
+              error: form.querySelector('[data-mbapro-ev-error="home_price"]')
+            }
+          },
+          public: {
+            checkbox: form.querySelector('[data-mbapro-ev-advanced-select="public"]'),
+            group: form.querySelector('[data-mbapro-ev-advanced-group="public"]'),
+            percentage: {
+              input: form.querySelector('[data-mbapro-ev-input="public_percentage"]'),
+              error: form.querySelector('[data-mbapro-ev-error="public_percentage"]')
+            },
+            price: {
+              input: form.querySelector('[data-mbapro-ev-input="public_price"]'),
+              error: form.querySelector('[data-mbapro-ev-error="public_price"]')
+            }
+          },
+          work: {
+            checkbox: form.querySelector('[data-mbapro-ev-advanced-select="work"]'),
+            group: form.querySelector('[data-mbapro-ev-advanced-group="work"]'),
+            percentage: {
+              input: form.querySelector('[data-mbapro-ev-input="work_percentage"]'),
+              error: form.querySelector('[data-mbapro-ev-error="work_percentage"]')
+            },
+            price: {
+              input: form.querySelector('[data-mbapro-ev-input="work_price"]'),
+              error: form.querySelector('[data-mbapro-ev-error="work_price"]')
+            }
+          }
+        },
+        advancedTip: form.querySelector('[data-mbapro-ev-advanced-tip]'),
         calculateButton: form.querySelector('[data-mbapro-ev-calculate]')
       };
 
@@ -299,6 +469,8 @@
         form.querySelector('[data-mbapro-ev-advanced-toggle]'),
         form.querySelector('[data-mbapro-ev-advanced]')
       );
+
+      bindAdvancedGroups(inputs.advanced, inputs.advancedTip);
 
       bindCalculator(inputs, outputs, subs, charts);
     });
